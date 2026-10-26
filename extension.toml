@@ -1,0 +1,249 @@
+# TikTok on Pointman: a process that sends videos (a YouTube Short, or a cut made for TikTok) to a TikTok account
+# through TikTok's Content Posting API, as a draft in its inbox or a direct post, and makes them ready with ffmpeg
+# first. The account is signed in from the apps with Login Kit; the TikTok app's client key and secret and each
+# sign-in's refresh token live in the vault, never in a file.
+#
+# The commands' params and [settings] are written from proto/tiktok/v1/tiktok.proto (`<Verb>Params`, `Settings`) by
+# the SDK's `pointman-extension manifest write`: change the proto, then write them again.
+
+[extension]
+id = "tiktok"
+name = "TikTok"
+version = "0.1.0"
+publisher = "jamescalam"
+summary = "Send videos to a TikTok account, as drafts in its inbox or direct posts, made 9:16 and trimmed for TikTok first; nothing goes up without the owner's yes."
+node = ">=0.3,<1"
+platforms = ["macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64"]
+
+[run]
+command = ["bin/tiktok"]
+runtime = "binary"
+
+[behavior]
+skill = "SKILL.md"
+clients = ["claude", "codex", "gemini"]
+
+[permissions]
+network = true                   # TikTok's OAuth and Content Posting API
+secrets = ["tiktok.*"]           # tiktok.client (the TikTok app) and tiktok.<label> (each account's sign-in)
+
+# The TikTok app the sign-ins and uploads go through: one made at developers.tiktok.com with Login Kit (Desktop) and
+# the Content Posting API.
+[[credentials]]
+id = "client"
+title = "Your TikTok app"
+help = "At developers.tiktok.com › Manage apps, open the app (or its sandbox) with Login Kit and the Content Posting API. Paste its client key, a space, then its client secret."
+item = "tiktok.client"
+value = '[A-Za-z0-9]{8,64}[\s:]+[A-Za-z0-9_-]{16,128}'
+placeholder = "aw1b2c3d4e5f6g7h8 0123abcd…"
+
+# An account: Sign in from the apps (Login Kit, the address it ends on pasted back), kept as its refresh token.
+[[credentials]]
+id = "account"
+title = "TikTok account"
+help = "Sign in as the TikTok account to post to. The page after TikTok's won't open: copy its whole address and paste it in. Or paste a refresh token made with the same TikTok app."
+item = "tiktok.{label}"
+value = 'rft\.[!-~]{8,1024}'
+placeholder = "rft.…"
+sign_in = true
+
+[[commands]]
+kind = "tiktok.creator"
+title = "The TikTok account, as it can post now"
+slash = "creator"
+summary = "The signed-in account's name, who it can post for, its longest video, and the interactions it turns off"
+
+# From CreatorParams in proto/tiktok/v1/tiktok.proto: `pointman-extension manifest write`
+[commands.params]
+type = "object"
+description = "tiktok.creator: the signed-in account, as TikTok lets it post now."
+additionalProperties = false
+
+[[commands]]
+kind = "tiktok.prepare"
+title = "Make a video ready for TikTok (file, max_seconds?, fit?)"
+lane = "prepare"
+cancellable = true
+slash = "prepare"
+summary = "A new MP4 from a video: H.264/AAC, 1080x1920, trimmed to the account's longest; posted back to check"
+
+# From PrepareParams in proto/tiktok/v1/tiktok.proto: `pointman-extension manifest write`
+[commands.params]
+type = "object"
+description = "tiktok.prepare: a video made ready for TikTok, as a new file: H.264 and AAC in an MP4, 1080x1920, no longer than the creator may post."
+required = ["file"]
+additionalProperties = false
+
+[commands.params.properties.file]
+type = "string"
+description = "The video: a board file (pointman://asset/<id>, which the node fetches) or a path in the folders the node lets the extension use."
+minLength = 1
+
+[commands.params.properties.max_seconds]
+type = "integer"
+description = "The longest it may be, in seconds: longer is trimmed. Left out: the creator's limit (tiktok.creator), or 180 without one."
+minimum = 3
+maximum = 600
+
+[commands.params.properties.fit]
+type = "string"
+description = "How a video that isn't 9:16 is made 9:16 (default pad)."
+enum = ["pad", "crop"]
+default = "pad"
+
+[[commands]]
+kind = "tiktok.upload"
+title = "Send a video to TikTok (file, caption, mode, …, confirm)"
+lane = "upload"
+cancellable = true
+resumable = true
+slash = "upload"
+summary = "Send a video to TikTok as an inbox draft (default) or a direct post; needs confirm=true, once the owner said yes"
+
+# From UploadParams in proto/tiktok/v1/tiktok.proto: `pointman-extension manifest write`
+[commands.params]
+type = "object"
+description = "tiktok.upload: a video sent to TikTok, as a draft in the account's inbox (the default) or a direct post."
+required = ["file"]
+additionalProperties = false
+
+[commands.params.properties.file]
+type = "string"
+description = "The video (MP4, MOV or WebM): a board file (pointman://asset/<id>, which the node fetches) or a path in the folders the node lets the extension use."
+minLength = 1
+
+[commands.params.properties.caption]
+type = "string"
+description = "The caption, hashtags included: at most 2,200 characters. TikTok strips links. A draft's isn't sent (TikTok's inbox takes none): its answer gives it to paste in the app."
+maxLength = 2200
+
+[commands.params.properties.mode]
+type = "string"
+description = "Draft (the default): to the TikTok inbox, posted by its owner in the app. Direct: posted now."
+enum = ["draft", "direct"]
+default = "draft"
+
+[commands.params.properties.privacy]
+type = "string"
+description = "A direct post's audience, chosen by the owner: one of tiktok.creator's privacy_options. Until TikTok audits the app, only self_only."
+enum = ["public_to_everyone", "mutual_follow_friends", "follower_of_creator", "self_only"]
+
+[commands.params.properties.allow_comments]
+type = "boolean"
+description = "Let people comment on a direct post (off unless the owner says)."
+
+[commands.params.properties.allow_duets]
+type = "boolean"
+description = "Let people duet it (off unless the owner says)."
+
+[commands.params.properties.allow_stitches]
+type = "boolean"
+description = "Let people stitch it (off unless the owner says)."
+
+[commands.params.properties.cover_ms]
+type = "integer"
+description = "The frame for a direct post's cover, in milliseconds from the start. Left out: the first frame."
+minimum = 0
+
+[commands.params.properties.your_brand]
+type = "boolean"
+description = """A direct post promotes the creator's own business ("Your brand")."""
+
+[commands.params.properties.branded_content]
+type = "boolean"
+description = """A direct post is a paid partnership with another brand ("Branded content"): it can't be self_only."""
+
+[commands.params.properties.ai_generated]
+type = "boolean"
+description = "A direct post is AI-generated: TikTok labels it."
+
+[commands.params.properties.confirm]
+type = "boolean"
+description = "True once the account's owner has said yes to sending this video, with this caption, mode and privacy. Without it, nothing reaches TikTok."
+
+[[commands]]
+kind = "tiktok.status"
+title = "Where a sent video is (publish_id)"
+slash = "status"
+summary = "Whether TikTok is still taking a sent video, has it in the inbox, posted it, or failed it, and why"
+
+# From StatusParams in proto/tiktok/v1/tiktok.proto: `pointman-extension manifest write`
+[commands.params]
+type = "object"
+description = "tiktok.status: where a video sent with tiktok.upload is."
+required = ["publish_id"]
+additionalProperties = false
+
+[commands.params.properties.publish_id]
+type = "string"
+description = "tiktok.upload's publish_id."
+minLength = 1
+maxLength = 64
+
+[[commands]]
+kind = "tiktok.add"
+title = "Add a TikTok account"
+slash = "add"
+form = "account"
+summary = "Sign a TikTok account in for this machine's uploads"
+
+# From AddParams in proto/tiktok/v1/tiktok.proto: `pointman-extension manifest write`
+[commands.params]
+type = "object"
+description = "tiktok.add: a TikTok sign-in, added in the apps."
+additionalProperties = false
+
+[commands.params.properties.name]
+type = "string"
+description = "What to call it (main): lowercase letters, digits, . _ -"
+maxLength = 32
+pattern = "^([a-z0-9][a-z0-9._-]*)?$"
+
+[[commands]]
+kind = "tiktok.client"
+title = "Add your TikTok app"
+slash = "client"
+form = "client"
+summary = "The TikTok app (client key and secret) the sign-ins and uploads go through"
+
+# From ClientParams in proto/tiktok/v1/tiktok.proto: `pointman-extension manifest write`
+[commands.params]
+type = "object"
+description = "tiktok.client: the TikTok app (client key and secret) the sign-ins and uploads go through, added in the apps."
+additionalProperties = false
+
+# From Settings in proto/tiktok/v1/tiktok.proto: `pointman-extension manifest write`
+[settings]
+type = "object"
+description = "The extension's settings, per machine."
+additionalProperties = false
+
+[settings.properties.account]
+type = "string"
+description = "The label of the TikTok sign-in to use (main, for the vault's tiktok.main). Empty: the first, by label."
+maxLength = 32
+pattern = "^([a-z0-9][a-z0-9._-]*)?$"
+
+[settings.properties.redirect]
+type = "string"
+description = "The redirect address the sign-ins use, exactly as it's registered in the TikTok app's Login Kit (Desktop): localhost or 127.0.0.1 with a port."
+default = "http://127.0.0.1:8370/callback/"
+maxLength = 200
+pattern = '^http://(127\.0\.0\.1|localhost):[0-9]{2,5}/[A-Za-z0-9/._-]*$'
+
+[settings.properties.direct_post]
+type = "boolean"
+description = "Whether sign-ins ask for video.publish too, for direct posts. Off: drafts only (video.upload), for a TikTok app without Direct Post."
+default = true
+
+[settings.properties.audited]
+type = "boolean"
+description = "Whether TikTok has audited the app. Until it has, direct posts are only to a private account, seen only by its owner (self_only)."
+default = false
+
+[settings.properties.chunk_mib]
+type = "integer"
+description = "How much of a video each upload request sends, in MiB (default 10). A video smaller than this goes in one."
+default = 10
+minimum = 5
+maximum = 64

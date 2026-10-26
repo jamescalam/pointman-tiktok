@@ -1,0 +1,164 @@
+// The TikTok extension's commands and settings: the source of extension.toml's `params` and `[settings]` schemas.
+// Command `tiktok.<verb>` takes `<Verb>Params` and answers `<Verb>Result`. A field's comment is its description, and
+// its buf.validate rules are its limits. TikTok's own limits are from the Content Posting API reference
+// (https://developers.tiktok.com/doc/content-posting-api-reference-direct-post) and its media transfer guide.
+syntax = "proto3";
+
+package tiktok.v1;
+
+import "buf/validate/validate.proto";
+import "pointman/v1/options.proto";
+
+// The extension's settings, per machine.
+message Settings {
+  // The label of the TikTok sign-in to use (main, for the vault's tiktok.main). Empty: the first, by label.
+  string account = 1 [(buf.validate.field).string = {max_len: 32, pattern: "^([a-z0-9][a-z0-9._-]*)?$"}, (pointman.v1.setting).default = ""];
+  // The redirect address the sign-ins use, exactly as it's registered in the TikTok app's Login Kit (Desktop): localhost or 127.0.0.1 with a port.
+  string redirect = 2 [(buf.validate.field).string = {max_len: 200, pattern: "^http://(127\\.0\\.0\\.1|localhost):[0-9]{2,5}/[A-Za-z0-9/._-]*$"}, (pointman.v1.setting).default = "http://127.0.0.1:8370/callback/"];
+  // Whether sign-ins ask for video.publish too, for direct posts. Off: drafts only (video.upload), for a TikTok app without Direct Post.
+  bool direct_post = 3 [(pointman.v1.setting).default = "true"];
+  // Whether TikTok has audited the app. Until it has, direct posts are only to a private account, seen only by its owner (self_only).
+  bool audited = 4 [(pointman.v1.setting).default = "false"];
+  // How much of a video each upload request sends, in MiB (default 10). A video smaller than this goes in one.
+  int32 chunk_mib = 5 [(buf.validate.field).int32 = {gte: 5, lte: 64}, (pointman.v1.setting).default = "10"];
+}
+
+// How a video goes to TikTok.
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  // To the account's TikTok inbox, for its owner to finish and post in the app (scope video.upload).
+  MODE_DRAFT = 1;
+  // Posted on the account straight away (scope video.publish).
+  MODE_DIRECT = 2;
+}
+
+// Who can see a direct post: one of the creator's privacy_level_options (tiktok.creator).
+enum Privacy {
+  PRIVACY_UNSPECIFIED = 0;
+  PRIVACY_PUBLIC_TO_EVERYONE = 1;
+  PRIVACY_MUTUAL_FOLLOW_FRIENDS = 2;
+  PRIVACY_FOLLOWER_OF_CREATOR = 3;
+  // Only the account's owner.
+  PRIVACY_SELF_ONLY = 4;
+}
+
+// How a video that isn't 9:16 is made 9:16.
+enum Fit {
+  FIT_UNSPECIFIED = 0;
+  // Scaled to fit inside 1080x1920, with black bars: nothing is cut off.
+  FIT_PAD = 1;
+  // Scaled to fill 1080x1920, its edges cut off.
+  FIT_CROP = 2;
+}
+
+// tiktok.creator: the signed-in account, as TikTok lets it post now.
+message CreatorParams {}
+
+message CreatorResult {
+  string text = 1;
+  string username = 2;
+  string nickname = 3;
+  // Who its direct posts can be for, as TikTok allows them now.
+  repeated Privacy privacy_options = 4;
+  // The longest video it may post, in seconds.
+  int32 max_seconds = 5;
+  bool comments_off = 6;
+  bool duets_off = 7;
+  bool stitches_off = 8;
+}
+
+// tiktok.prepare: a video made ready for TikTok, as a new file: H.264 and AAC in an MP4, 1080x1920, no longer than the creator may post.
+message PrepareParams {
+  // The video: a board file (pointman://asset/<id>, which the node fetches) or a path in the folders the node lets the extension use.
+  string file = 1 [(buf.validate.field).required = true, (buf.validate.field).string.min_len = 1];
+  // The longest it may be, in seconds: longer is trimmed. Left out: the creator's limit (tiktok.creator), or 180 without one.
+  int32 max_seconds = 2 [(buf.validate.field).int32 = {gte: 3, lte: 600}];
+  // How a video that isn't 9:16 is made 9:16 (default pad).
+  Fit fit = 3 [(pointman.v1.setting).default = "pad"];
+}
+
+message PrepareResult {
+  string text = 1;
+  // The new file, on this machine: give it to tiktok.upload.
+  string file = 2;
+  int32 width = 3;
+  int32 height = 4;
+  double seconds = 5;
+  // Whether it was cut to max_seconds.
+  bool trimmed = 6;
+  int64 bytes = 7;
+}
+
+// tiktok.upload: a video sent to TikTok, as a draft in the account's inbox (the default) or a direct post.
+message UploadParams {
+  // The video (MP4, MOV or WebM): a board file (pointman://asset/<id>, which the node fetches) or a path in the folders the node lets the extension use.
+  string file = 1 [(buf.validate.field).required = true, (buf.validate.field).string.min_len = 1];
+  // The caption, hashtags included: at most 2,200 characters. TikTok strips links. A draft's isn't sent (TikTok's inbox takes none): its answer gives it to paste in the app.
+  string caption = 2 [(buf.validate.field).string.max_len = 2200];
+  // Draft (the default): to the TikTok inbox, posted by its owner in the app. Direct: posted now.
+  Mode mode = 3 [(pointman.v1.setting).default = "draft"];
+  // A direct post's audience, chosen by the owner: one of tiktok.creator's privacy_options. Until TikTok audits the app, only self_only.
+  Privacy privacy = 4;
+  // Let people comment on a direct post (off unless the owner says).
+  bool allow_comments = 5;
+  // Let people duet it (off unless the owner says).
+  bool allow_duets = 6;
+  // Let people stitch it (off unless the owner says).
+  bool allow_stitches = 7;
+  // The frame for a direct post's cover, in milliseconds from the start. Left out: the first frame.
+  int32 cover_ms = 8 [(buf.validate.field).int32.gte = 0];
+  // A direct post promotes the creator's own business ("Your brand").
+  bool your_brand = 9;
+  // A direct post is a paid partnership with another brand ("Branded content"): it can't be self_only.
+  bool branded_content = 10;
+  // A direct post is AI-generated: TikTok labels it.
+  bool ai_generated = 11;
+  // True once the account's owner has said yes to sending this video, with this caption, mode and privacy. Without it, nothing reaches TikTok.
+  bool confirm = 12;
+}
+
+message UploadResult {
+  string text = 1;
+  // TikTok's id for it: give it to tiktok.status.
+  string publish_id = 2;
+  Mode mode = 3;
+  // Where it is, as TikTok says (PROCESSING_UPLOAD, SEND_TO_USER_INBOX, PUBLISH_COMPLETE, FAILED).
+  string status = 4;
+  Privacy privacy = 5;
+  int64 bytes = 6;
+}
+
+// tiktok.status: where a video sent with tiktok.upload is.
+message StatusParams {
+  // tiktok.upload's publish_id.
+  string publish_id = 1 [(buf.validate.field).required = true, (buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+
+message StatusResult {
+  string text = 1;
+  string publish_id = 2;
+  // As TikTok says it: PROCESSING_UPLOAD, PROCESSING_DOWNLOAD, SEND_TO_USER_INBOX, PUBLISH_COMPLETE or FAILED.
+  string status = 3;
+  // Why it failed, as TikTok says it (duration_check_failed…).
+  string fail_reason = 4;
+  // The public posts made from it, once they've passed TikTok's moderation.
+  repeated string post_ids = 5;
+  int64 uploaded_bytes = 6;
+}
+
+// tiktok.add: a TikTok sign-in, added in the apps.
+message AddParams {
+  // What to call it (main): lowercase letters, digits, . _ -
+  string name = 1 [(buf.validate.field).string = {max_len: 32, pattern: "^([a-z0-9][a-z0-9._-]*)?$"}];
+}
+
+message AddResult {
+  string text = 1;
+}
+
+// tiktok.client: the TikTok app (client key and secret) the sign-ins and uploads go through, added in the apps.
+message ClientParams {}
+
+message ClientResult {
+  string text = 1;
+}
