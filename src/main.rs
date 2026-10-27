@@ -586,13 +586,13 @@ fn main() -> anyhow::Result<()> {
         if p.label.trim() == CLIENT_ITEM.trim_start_matches("tiktok.") {
             bail!("{CLIENT_ITEM} is the TikTok app's place in the vault: call the account something else");
         }
-        let session = p.session.as_option().map(|s| s.value.as_str()).unwrap_or_default();
+        let session = p.session.as_option().map(|s| s.id.as_str()).unwrap_or_default();
         let settings = xx.settings()?;
         s.start(xx.client()?, &settings.redirect, settings.direct_post, session)
     });
     let (xx, s) = (x.clone(), signins);
     ext.on(move |p: CredentialsCodeRequest| {
-        let session = p.session.as_option().map(|s| s.value.as_str()).unwrap_or_default();
+        let session = p.session.as_option().map(|s| s.id.as_str()).unwrap_or_default();
         let value = s.code(&xx.agent, &xx.ends, session, &p.code)?;
         Ok(CredentialsCodeResponse { value, ..Default::default() })
     });

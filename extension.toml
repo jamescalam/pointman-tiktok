@@ -9,10 +9,10 @@
 [extension]
 id = "tiktok"
 name = "TikTok"
-version = "0.1.0"
+version = "0.2.0"
 publisher = "jamescalam"
 summary = "Send videos to a TikTok account, as drafts in its inbox or direct posts, made 9:16 and trimmed for TikTok first; nothing goes up without the owner's yes."
-node = ">=0.3,<1"
+node = ">=0.4,<1"
 platforms = ["macos-arm64", "macos-x86_64", "linux-x86_64", "linux-arm64"]
 
 [run]
