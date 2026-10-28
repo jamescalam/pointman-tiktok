@@ -56,7 +56,7 @@ fn a_sign_in_takes_the_pasted_address_and_refuses_another_sign_ins() {
     let start = |session: &str| {
         node.call(
             "credentials.sign_in",
-            json!({"form": "account", "label": "main", "person": {"handle": "james"}, "session": {"value": session}}),
+            json!({"form": "account", "label": "main", "person": {"name": "james"}, "session": {"id": session}}),
         )
         .unwrap()
     };
@@ -84,25 +84,25 @@ fn a_sign_in_takes_the_pasted_address_and_refuses_another_sign_ins() {
     // the address another sign-in ended on is refused before TikTok is asked, and this sign-in ends
     let theirs = format!("{REDIRECT}?code={}&scopes=video.upload&state={}", "fake-code%2A123%21", q2["state"]);
     let e = node
-        .call("credentials.code", json!({"form": "account", "session": {"value": "sgn_1"}, "code": theirs}))
+        .call("credentials.code", json!({"form": "account", "session": {"id": "sgn_1"}, "code": theirs}))
         .unwrap_err();
     assert!(e.message.contains("another sign-in") && e.message.contains("refused"), "{e}");
     assert!(fake.requests().is_empty(), "no code was traded: {:?}", fake.paths());
     let e = node
-        .call("credentials.code", json!({"form": "account", "session": {"value": "sgn_1"}, "code": theirs}))
+        .call("credentials.code", json!({"form": "account", "session": {"id": "sgn_1"}, "code": theirs}))
         .unwrap_err();
     assert!(e.message.contains("ended"), "{e}");
 
     // something that isn't the address: the sign-in carries on for the right paste
     let e = node
-        .call("credentials.code", json!({"form": "account", "session": {"value": "sgn_2"}, "code": "WDJB-MJHT"}))
+        .call("credentials.code", json!({"form": "account", "session": {"id": "sgn_2"}, "code": "WDJB-MJHT"}))
         .unwrap_err();
     assert!(e.message.contains("paste all of it"), "{e}");
     fake.state().challenge = Some(q2["code_challenge"].clone());
     let ours =
         format!("  {REDIRECT}?code=fake-code%2A123%21&scopes=user.info.basic%2Cvideo.upload&state={}  ", q2["state"]);
     let got =
-        node.call("credentials.code", json!({"form": "account", "session": {"value": "sgn_2"}, "code": ours})).unwrap();
+        node.call("credentials.code", json!({"form": "account", "session": {"id": "sgn_2"}, "code": ours})).unwrap();
     assert_eq!(got["value"], REFRESH, "the vault's value is the refresh token alone");
     let traded = fake.requests().into_iter().find(|r| r.path == "/v2/oauth/token/").unwrap();
     assert_eq!(traded.form["grant_type"], "authorization_code");
@@ -115,18 +115,18 @@ fn a_sign_in_takes_the_pasted_address_and_refuses_another_sign_ins() {
     let e = node
         .call(
             "credentials.code",
-            json!({"form": "account", "session": {"value": "sgn_3"},
+            json!({"form": "account", "session": {"id": "sgn_3"},
                    "code": format!("{REDIRECT}?error=access_denied&error_description=User+cancelled+the+authorization")}),
         )
         .unwrap_err();
     assert!(e.message.contains("access_denied") && e.message.contains("User cancelled"), "{e}");
     let e = node
-        .call("credentials.sign_in", json!({"form": "account", "label": "client", "session": {"value": "sgn_4"}}))
+        .call("credentials.sign_in", json!({"form": "account", "label": "client", "session": {"id": "sgn_4"}}))
         .unwrap_err();
     assert!(e.message.contains("tiktok.client"), "{e}");
     let bare = node_with(&fake, dir.path(), json!({}), vec![]);
     let e = bare
-        .call("credentials.sign_in", json!({"form": "account", "label": "main", "session": {"value": "sgn_5"}}))
+        .call("credentials.sign_in", json!({"form": "account", "label": "main", "session": {"id": "sgn_5"}}))
         .unwrap_err();
     assert!(e.message.contains("/tiktok client"), "{e}");
 }
@@ -138,12 +138,12 @@ fn a_sign_in_without_the_scopes_it_asked_for_is_refused() {
     let node = node_with(&fake, dir.path(), json!({}), vec![client()]);
     let sign_in = |node: &StandIn, session: &str| {
         let started = node
-            .call("credentials.sign_in", json!({"form": "account", "label": "main", "session": {"value": session}}))
+            .call("credentials.sign_in", json!({"form": "account", "label": "main", "session": {"id": session}}))
             .unwrap();
         let q = query(started["url"].as_str().unwrap());
         fake.state().challenge = Some(q["code_challenge"].clone());
         let pasted = format!("{REDIRECT}?code=fake-code%2A123%21&state={}", q["state"]);
-        node.call("credentials.code", json!({"form": "account", "session": {"value": session}, "code": pasted}))
+        node.call("credentials.code", json!({"form": "account", "session": {"id": session}, "code": pasted}))
     };
     fake.state().scopes = "user.info.basic,video.upload".into();
     let e = sign_in(&node, "sgn_1").unwrap_err();
