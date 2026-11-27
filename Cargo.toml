@@ -1,6 +1,6 @@
 [package]
 name = "tiktok"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "TikTok on Pointman: send videos to a TikTok account as inbox drafts or direct posts, through TikTok's Content Posting API."
 license = "MIT"
